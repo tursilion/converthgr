@@ -35,6 +35,7 @@
 #define IDC_CHKPERCEPT                  1019
 #define IDC_ERRMODE                     1019
 #define IDC_MAXDIFF                     1020
+#define IDC_ORDERED3                    1020
 #define IDC_PERPR                       1021
 #define IDC_PERPG                       1022
 #define IDC_EDIT7                       1023
@@ -42,6 +43,7 @@
 #define IDC_PERPRESET                   1024
 #define IDC_COMBO1                      1025
 #define IDC_PERPRESET2                  1025
+#define IDC_ORDERED4                    1025
 #define IDC_RELOAD                      1026
 #define IDC_RADIO1                      1027
 #define IDC_RADIO2                      1028
@@ -54,16 +56,19 @@
 #define IDC_DISTDEFAULT2                1035
 #define IDC_LUMA                        1036
 #define IDC_MAXCOLSHIFT                 1037
+#define IDC_COLDIFF                     1037
 #define IDC_LUMA2                       1038
 #define IDC_GAMMA                       1038
+#define IDC_DIAG                        1039
+#define IDC_ORDERSLIDE                  1040
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        134
+#define _APS_NEXT_RESOURCE_VALUE        135
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1037
+#define _APS_NEXT_CONTROL_VALUE         1041
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

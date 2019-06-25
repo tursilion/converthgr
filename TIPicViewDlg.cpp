@@ -2,9 +2,11 @@
 //
 
 #include "stdafx.h"
+#include <Windows.h>
 #include "TIPicView.h"
 #include "TIPicViewDlg.h"
-#include "C:\WORK\imgsource\4.0\islibs40_vs05\ISource.h"
+#include "D:\WORK\imgsource\4.0\islibs40_vs17_unicode\ISource.h"
+#include "DOS3.3.cpp"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -12,9 +14,17 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
+// Floppy diskette tools
+const unsigned char hello[] = {
+    0x1f,0,7,8,10,0,0x91,0,0x1d,8,0x14,0,0xba,0x22,4,0x42,
+    0x4c,0x4f,0x41,0x44,0x20,0x48,0x47,0x52,0x46,0x49,0x4c,
+    0x45,0x22,0,0,0,0x8c,0x45
+};
+
 extern bool StretchHist;
 static bool fInSlideMode=false;
 extern int PIXA,PIXB,PIXC,PIXD,PIXE,PIXF;
+extern int g_orderSlide;
 extern int g_nFilter;
 extern int g_nPortraitMode;
 extern int pixeloffset, heightoffset;
@@ -22,23 +32,25 @@ extern int g_Perceptual;
 extern int g_AccumulateErrors;
 extern int g_MaxColDiff;
 extern int g_OrderedDither;
+extern int g_MapSize;
 extern double g_PercepR, g_PercepG, g_PercepB;
 extern double g_LumaEmphasis;
 extern double g_Gamma;
-extern char *cmdFileIn, *cmdFileOut;
+extern wchar_t *cmdFileIn, *cmdFileOut;
 extern bool g_Grey;
-extern bool fFirstLoad;
 unsigned char pbuf[8192];
-extern unsigned char buf8[256*192];
+extern unsigned char buf8[280*192];
+extern bool fFirstLoad;
 extern RGBQUAD winpal[256];
 extern bool fVerbose;
 
+int nLastValidConversionMode = 0;
 // handle to global shared memory used for multiple instances to share random fileloads
 // this just makes it easier to compare different render options side by side, hopefully
 // it won't break anything
 HANDLE hSharedMemory = NULL;
 LPVOID pSharedPointer = NULL;
-char szLastFilename[256];
+wchar_t szLastFilename[256];
 
 /////////////////////////////////////////////////////////////////////////////
 // CAboutDlg dialog used for App About
@@ -90,6 +102,7 @@ END_MESSAGE_MAP()
 
 CTIPicViewDlg::CTIPicViewDlg(CWnd* pParent /*=NULL*/)
 	: CDialog(CTIPicViewDlg::IDD, pParent)
+	, m_nOrderSlide(0)
 {
 	//{{AFX_DATA_INIT(CTIPicViewDlg)
 		// NOTE: the ClassWizard will add member initialization here
@@ -126,6 +139,8 @@ void CTIPicViewDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_CBIndex(pDX, IDC_FILTER, m_nFilter);
 	DDX_CBIndex(pDX, IDC_PORTRAIT, m_nPortraitMode);
 	DDX_CBIndex(pDX, IDC_ERRMODE, m_ErrMode);
+	DDX_Text(pDX, IDC_COLDIFF, m_MaxColDiff);
+	DDV_MinMaxInt(pDX, m_MaxColDiff, 0, 100);
 	DDX_Text(pDX, IDC_PERPR, m_PercepR);
 	DDV_MinMaxInt(pDX, m_PercepR, 0, 100);
 	DDX_Text(pDX, IDC_PERPG, m_PercepG);
@@ -135,8 +150,10 @@ void CTIPicViewDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_GREY, m_CtrlGrey);
 	DDX_Text(pDX, IDC_LUMA, m_Luma);
 	DDX_Text(pDX, IDC_GAMMA, m_Gamma);
-	DDX_Text(pDX, IDC_MAXCOLSHIFT, m_MaxColDiff);
-} 
+	DDX_Slider(pDX, IDC_ORDERSLIDE, m_nOrderSlide);
+	DDV_MinMaxInt(pDX, m_nOrderSlide, 0, 16);
+	DDX_Control(pDX, IDC_ORDERSLIDE, ctrlOrderSlide);
+}
 
 BEGIN_MESSAGE_MAP(CTIPicViewDlg, CDialog)
 	//{{AFX_MSG_MAP(CTIPicViewDlg)
@@ -167,6 +184,9 @@ BEGIN_MESSAGE_MAP(CTIPicViewDlg, CDialog)
 	ON_WM_TIMER()
 	ON_BN_CLICKED(IDC_ORDERED, &CTIPicViewDlg::OnBnClickedOrdered)
 	ON_BN_CLICKED(IDC_ORDERED2, &CTIPicViewDlg::OnBnClickedOrdered2)
+	ON_BN_CLICKED(IDC_DIAG, &CTIPicViewDlg::OnBnClickedDiag)
+	ON_BN_CLICKED(IDC_ORDERED3, &CTIPicViewDlg::OnBnClickedOrdered3)
+	ON_BN_CLICKED(IDC_ORDERED4, &CTIPicViewDlg::OnBnClickedOrdered4)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -199,6 +219,9 @@ BOOL CTIPicViewDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// Set big icon
 	SetIcon(m_hIcon, FALSE);		// Set small icon
 
+	// set up the slider
+	ctrlOrderSlide.SetRange(0, 16);
+
 	// update configuration pane
 	m_pixelA=PIXA;
 	m_pixelB=PIXB;
@@ -218,12 +241,14 @@ BOOL CTIPicViewDlg::OnInitDialog()
 	PrepareData();
 	
 	// interface to the dithering ordered buttons
-	if (g_OrderedDither) {
+	if (g_OrderedDither != 0) {
 		EnableDitherCtrls(false);
-		if (g_OrderedDither == 2) {
-			SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_CHECKED, 0);
-		} else {
-			SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_CHECKED, 0);
+		int option = g_OrderedDither + (g_MapSize==4 ? 2: 0);
+		switch (option) {
+		case 1: SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_CHECKED, 0); break;
+		case 2: SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_CHECKED, 0); break;
+		case 3: SendDlgItemMessage(IDC_ORDERED3, BM_SETCHECK, BST_CHECKED, 0); break;
+		case 4: SendDlgItemMessage(IDC_ORDERED4, BM_SETCHECK, BST_CHECKED, 0); break;
 		}
 	}
 
@@ -282,7 +307,8 @@ void CTIPicViewDlg::OnPaint()
 		CPaintDC dc(this);
 
 		if (NULL != buf8) {
-			IS40_StretchDraw8Bit(dc, buf8, 280, 192, 280, winpal, XOFFSET, 0, 280*2, 192*2);
+			int dpi = GetDpiForWindow(GetSafeHwnd());
+			IS40_StretchDraw8Bit(dc, buf8, 280, 192, 280, winpal, DPIFIX(XOFFSET), DPIFIX(0), DPIFIX(280*2), DPIFIX(192*2));
 		}
 		CDialog::OnPaint();
 	}
@@ -297,7 +323,7 @@ HCURSOR CTIPicViewDlg::OnQueryDragIcon()
 
 void CTIPicViewDlg::OnOK() {}
 
-void maincode(int mode, char *pFile);
+void maincode(int mode, CString pFile, double dark);
 // this is actually 'Open' now
 void CTIPicViewDlg::OnRnd() 
 {
@@ -310,13 +336,13 @@ void CTIPicViewDlg::OnRnd()
 
 	// Get Path filename
 	CFileDialog dlg(true);
-	dlg.m_ofn.lpstrTitle="Select file to open: BMP, GIF, JPG, PNG, PCX or TIFF";
+	dlg.m_ofn.lpstrTitle=_T("Select file to open: BMP, GIF, JPG, PNG, PCX or TIFF");
 	if (IDOK != dlg.DoModal()) {
 		return;
 	}
 	csPath=dlg.GetPathName();
 
-	LaunchMain(2, (char*)(const char*)csPath);
+	LaunchMain(2, (char*)csPath.GetString());
 
 }
 
@@ -324,7 +350,7 @@ void CTIPicViewDlg::OnLButtonDblClk(UINT nFlags, CPoint point)
 {
 	fInSlideMode=true;
 	CWnd *pCtl=GetDlgItem(IDC_RND);
-	if (pCtl) pCtl->SetWindowText("Next");
+	if (pCtl) pCtl->SetWindowText(_T("Next"));
 	SetTimer(0, 500, NULL);		// start a regular tick to watch for new files
 
 	CDialog::OnLButtonDblClk(nFlags, point);
@@ -338,7 +364,7 @@ void CTIPicViewDlg::OnDoubleclickedRnd()
 	if (csPath=="") {
 		// Get Path image
 		CFileDialog dlg(true);
-		dlg.m_ofn.lpstrTitle="Select any file in a folder for random load - filename will be ignored";
+		dlg.m_ofn.lpstrTitle=_T("Select any file in a folder for random load - filename will be ignored");
 		if (IDOK != dlg.DoModal()) {
 			return;
 		}
@@ -350,7 +376,7 @@ void CTIPicViewDlg::OnDoubleclickedRnd()
 
 	// make sure the shared memory is available
 	if (NULL == hSharedMemory) {
-		hSharedMemory = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 4096, "Convert9918MappedData");
+		hSharedMemory = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 4096, _T("Convert9918MappedData"));
 		if (NULL != hSharedMemory) {
 			pSharedPointer = MapViewOfFile(hSharedMemory, FILE_MAP_ALL_ACCESS, 0, 0, 4096);
 		} else {
@@ -358,7 +384,7 @@ void CTIPicViewDlg::OnDoubleclickedRnd()
 		}
 	}
 
-	LaunchMain(0,(char*)(const char*)csPath);
+	LaunchMain(0,csPath);
 	// display the picture on the dialog
 }
 
@@ -371,7 +397,7 @@ void CTIPicViewDlg::OnButton2()
 {
 	if (pixeloffset < 7) {
 		pixeloffset++;
-		LaunchMain(1,NULL);
+		LaunchMain(1,"");
 	}
 }
 
@@ -379,7 +405,7 @@ void CTIPicViewDlg::OnButton1()
 {
 	if (pixeloffset > -7) {
 		pixeloffset--;
-		LaunchMain(1,NULL);
+		LaunchMain(1,"");
 	}
 }
 
@@ -417,20 +443,24 @@ void CTIPicViewDlg::OnButton4()
 
 	if (!fFirstLoad) {
 		if (fVerbose) {
-			debug("No file loaded to save.\n");
+			debug(_T("No file loaded to save.\n"));
 		}
 		return;
 	}
 
 	// Type:		 1							   2						    3
-	CString csFmt = "DOS 3.3 Style DSK image|*.DSK|Apple2 HGR Binary File|*.HGR|PNG file (PC)|*.PNG||";
-	CFileDialog dlg(false, NULL, NULL, OFN_HIDEREADONLY, csFmt);
+	CString csFmt = _T("DOS 3.3 Style DSK image|*.DSK|Apple2 HGR Binary File|*.HGR|PNG file (PC)|*.PNG||");
+	CFileDialog dlg(false, NULL, NULL, OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, csFmt);
 
 	// Save image
-	dlg.m_ofn.lpstrTitle="Enter filename to save as....";
+	dlg.m_ofn.lpstrTitle=_T("Enter filename to save as....");
+
+	if (!ResetToValidConversion()) {
+		return;
+	}
 
 	if ((cmdFileOut!=NULL) || (IDOK == dlg.DoModal())) {
-		CString outfile, rawfile;
+		CString cs, outfile, rawfile;
 		bool bOverwrite=false;
 
 		outfile=dlg.GetPathName();
@@ -438,24 +468,29 @@ void CTIPicViewDlg::OnButton4()
 			outfile = cmdFileOut;
 		}
 
+		// strip extension if present
+		if (outfile.ReverseFind('.') != -1) {
+			outfile=outfile.Left(outfile.ReverseFind('.'));
+		}
+		
 		switch (dlg.m_pOFN->nFilterIndex) {
 		case 1: // DSK
-			if (outfile.Right(4).CompareNoCase(".dsk") != 0) outfile+=".DSK";
+			if (outfile.Right(4).CompareNoCase(_T(".dsk")) != 0) outfile+=_T(".DSK");
 			break;
 		default:
 		case 2:	// HGR
-			if (outfile.Right(4).CompareNoCase(".hgr") != 0) outfile+=".hgr";
+			if (outfile.Right(4).CompareNoCase(_T(".hgr")) != 0) outfile+=_T(".hgr");
 			break;
 		case 3:	// PC PNG
-			if (outfile.Right(4).CompareNoCase(".png") != 0) outfile+=".png";
+			if (outfile.Right(4).CompareNoCase(_T(".png")) != 0) outfile+=_T(".png");
 			break;
 		}
 
-		fopen_s(&fP, outfile, "rb");
+		_wfopen_s(&fP, outfile, _T("rb"));
 		if (NULL != fP) {
 			fclose(fP);
 			if (cmdFileIn == NULL) {
-				if (IDNO == AfxMessageBox("File exists -- overwrite?", MB_YESNO)) {
+				if (IDNO == AfxMessageBox(_T("File exists -- overwrite?"), MB_YESNO)) {
 					return;
 				}
 			}
@@ -465,20 +500,20 @@ void CTIPicViewDlg::OnButton4()
 			// we don't need the conversion below, so just do the work and return here
 			HISDEST dst = IS40_OpenFileDest(outfile, FALSE);
 			if (NULL != dst) {
-				if (0 == IS40_WritePNG(dst, buf8, 256, 192, 256, 8, 256, winpal, 3, 0.0, NULL, 0)) {
-					AfxMessageBox("Error while writing file!");
+				if (0 == IS40_WritePNG(dst, buf8, 280, 192, 280, 8, 256, winpal, 3, 0.0, NULL, 0)) {
+					AfxMessageBox(_T("Error while writing file!"));
 				}
 				IS40_CloseDest(dst);
 			} else {
-				AfxMessageBox("Failed to save file!");
+				AfxMessageBox(_T("Failed to save file!"));
 			}
 			return;
 		}
 
 		// we now get to process buf8, converting palette pixels into apple 2 data
-		fopen_s(&fP, outfile, "wb");
+		_wfopen_s(&fP, outfile, _T("wb"));
 		if (NULL == fP) {
-			AfxMessageBox("Failed to open image file");
+			AfxMessageBox(_T("Failed to open image file"));
 			return;
 		}
 
@@ -506,16 +541,29 @@ void CTIPicViewDlg::OnButton4()
 		case 1:
 			// create a disk structure - not bootable, just our one little file on it
 			// this is because tools for Apple2 file manipulation on Windows are very rare
-			debug("Writing new DSK image with one file\n");
+			debug(_T("Writing new DSK image with one file\n"));
 			// Basic structure:
 			// 35 tracks (0-34), each with 16 sectors of 256 bytes.
-			// DOS loads on tracks 0-2, but we will disregard that here. The catalog track
-			// is on track 17, and files usually start immediately after it on track 18.
+			// DOS loads on tracks 0-2 (12k)
+            fwrite(dos33, 1, 12*1024, fP);
+
+            // write the 1 sector HELLO program immediately after it (sector 48)
+            // we don't store all 256 bytes, so we use a little buffer first
+            {
+                char buf[256];
+                memset(buf, 0, sizeof(buf));
+                memcpy(buf, hello, sizeof(hello));
+                fwrite(buf, 1, 256, fP);
+            }
+            
+            // The catalog track is on track 17, and files usually start 
+            // immediately after it on track 18.
 			// That will be our goal.
-			// So first, 17 tracks of empty (tracks 0-16)
-			for (int idx=0; idx<17*16*256; idx++) {
+			// So next, 14 tracks of empty (tracks 3-16)
+			for (int idx=0; idx<14*16*256-256; idx++) {
 				fputc(0x00, fP);
 			}
+
 			// now write a VTOC
 			fputc(0, fP);			// unused
 			fputc(17, fP);			// first catalog track
@@ -541,7 +589,7 @@ void CTIPicViewDlg::OnButton4()
 			fputc(1, fP);			// bytes per sector MSB (256)
 			for (int idx=0x38; idx<0x7c; idx+=4) {
 				fputc(0xff, fP);	// sector bitmap tracks 0-16
-				fputc(0xff, fP);	// sector bitmap tracks 0-16
+				fputc(0xff, fP);	// sector bitmap tracks 0-16 (we lie and say ALL full)
 				fputc(0, fP);		// sector bitmap tracks 0-16
 				fputc(0, fP);		// sector bitmap tracks 0-16
 			}
@@ -586,6 +634,21 @@ void CTIPicViewDlg::OnButton4()
 			for (int idx=0x03; idx<0x0b; idx++) {
 				fputc(0, fP);		// skip
 			}
+            // first entry (HELLO)
+			fputc(20, fP);			// track/sector list on track 20 (yeah, this is imperfect, but makes my code easier)
+			fputc(1, fP);			// sector of track/sector list
+			fputc(0x02, fP);		// APPLESOFT file type
+			fputc('H'+0x80, fP);	// filename - high bit set on each character 
+			fputc('E'+0x80, fP);	
+			fputc('L'+0x80, fP);	
+			fputc('L'+0x80, fP);	
+			fputc('O'+0x80, fP);	
+			for (int idx=5; idx<30; idx++) {
+				fputc(' '+0x80, fP);	// pad filename
+			}
+			fputc(2, fP);			// size in sectors LSB
+			fputc(0, fP);			// size MSB
+            // second entry (HGRFILE)
 			fputc(20, fP);			// track/sector list on track 20 (yeah, this is imperfect, but makes my code easier)
 			fputc(0, fP);			// sector of track/sector list
 			fputc(0x04, fP);		// BINARY file type
@@ -601,9 +664,12 @@ void CTIPicViewDlg::OnButton4()
 			}
 			fputc(33, fP);			// size in sectors LSB
 			fputc(0, fP);			// size MSB
-			for (int idx=0x2e; idx<0x100; idx++) {
+            // padding
+			for (int idx=0x51; idx<0x100; idx++) {
 				fputc(0, fP);		// empty rest of the sector
 			}
+
+            // HGRFILE
 			// first the 8 byte header - address and length as 16-bit little endian
 			fputc(0x00, fP);		// start LSB
 			fputc(0x20, fP);		// start MSB
@@ -611,17 +677,19 @@ void CTIPicViewDlg::OnButton4()
 			fputc(0x1f, fP);		// length MSB
 			// now just dump the data out - this fills tracks 18 and 19 (only need to write 0x1ff8 bytes, rest is padding)
 			fwrite(outbuf, 1, 0x1ffc, fP);
-			// now write the T/S list for track 20 sector 0
+
+			// now write the T/S list for track 20 sector 0 (HGRFILE)
 			fputc(0, fP);			// skip
 			fputc(0, fP);			// no next T/S track
 			fputc(0, fP);			// no next sector
 			fputc(0, fP);			// skip
 			fputc(0, fP);			// skip
-			fputc(0, fP);			// this is the first sector LSB
-			fputc(0, fP);			// this is the first sector MSB
+			fputc(0, fP);			// offset of sector list LSB (0 means 0x0c)
+			fputc(0, fP);			// offset of sector list MSB
 			for (int idx=0x07; idx<0x0c; idx++) {
 				fputc(0, fP);		// skip
 			}
+            // write the actual track/sector list (32 sectors)
 			for (int idx=18; idx<20; idx++) {	// track count
 				for (int idx2=0; idx2<16; idx2++) {	// sector count
 					fputc(idx, fP);	// track
@@ -632,8 +700,29 @@ void CTIPicViewDlg::OnButton4()
 			for (int idx=0x4c; idx<0x100; idx++) {
 				fputc(0, fP);
 			}
+
+			// now write the T/S list for track 20 sector 1 (HELLO)
+			fputc(0, fP);			// skip
+			fputc(0, fP);			// no next T/S track
+			fputc(0, fP);			// no next sector
+			fputc(0, fP);			// skip
+			fputc(0, fP);			// skip
+			fputc(0, fP);			// offset of sector list LSB (0 means 0x0c)
+			fputc(0, fP);			// offset of sector list MSB
+			for (int idx=0x07; idx<0x0c; idx++) {
+				fputc(0, fP);		// skip
+			}
+            // write the actual track/sector list (1 sector)
+            fputc(3, fP);   // track 3
+            fputc(0, fP);   // sector 0
+
+            // pad the rest of the sector
+			for (int idx=0x0E; idx<0x100; idx++) {
+				fputc(0, fP);
+			}
+
 			// and blank the rest of the disk
-			for (int idx=0; idx<(15*16*256)-256; idx++) {	// -256 for sector 20:0
+			for (int idx=0; idx<(15*16*256)-512; idx++) {	// -512 for sectors 20:(0-1)
 				fputc(0, fP);
 			}
 			break;
@@ -641,7 +730,7 @@ void CTIPicViewDlg::OnButton4()
 		default:
 		case 2:
 			// write the block
-			debug("Writing HGR file.\n");
+			debug(_T("Writing HGR file.\n"));
 			fwrite(outbuf, 1, 8192, fP);	// only 0x1ff8 bytes are needed because of the ending memory hole
 			break;
 		}
@@ -655,14 +744,14 @@ void CTIPicViewDlg::OnButton4()
 
 void CTIPicViewDlg::OnDropFiles(HDROP hDropInfo) 
 {
-	char szFile[1024];
+	wchar_t szFile[1024];
 
-	ZeroMemory(szFile, 1024);
+	ZeroMemory(szFile, sizeof(szFile));
 
 	DragQueryFile(hDropInfo, 0, szFile, 1024);
 	DragFinish(hDropInfo);
 
-	if (strlen(szFile)) {
+	if (wcslen(szFile)) {
 		LaunchMain(2,szFile);
 	}
 }
@@ -683,7 +772,7 @@ void CTIPicViewDlg::OnBnClickedButton3()
 			heightoffset-=4;
 		}
 	}
-	LaunchMain(1,NULL);
+	LaunchMain(1,"");
 }
 
 void CTIPicViewDlg::OnBnClickedButton5()
@@ -702,7 +791,7 @@ void CTIPicViewDlg::OnBnClickedButton5()
 			heightoffset+=4;
 		}
 	}
-	LaunchMain(1,NULL);
+	LaunchMain(1,"");
 }
 
 void CTIPicViewDlg::EnableItem(int Ctrl) {
@@ -723,7 +812,7 @@ void CTIPicViewDlg::ResetControls() {
 	// only controls that get enabled/disabled are listed
 	static int nControls[] = {
 		IDC_EDIT2, IDC_EDIT1, IDC_EDIT3, IDC_EDIT4, IDC_PERPR, IDC_PERPG, IDC_PERPB, 
-		IDC_ERRMODE, IDC_LUMA
+		IDC_ERRMODE, IDC_RADIO1, IDC_RADIO2, IDC_LUMA
 	};
 
 	for (int idx=0; idx<sizeof(nControls)/sizeof(nControls[0]); idx++) {
@@ -752,7 +841,7 @@ void CTIPicViewDlg::OnBnClickedPercept()
 	ResetControls();
 }
 
-void CTIPicViewDlg::LaunchMain(int mode, char *pFile) {
+void CTIPicViewDlg::LaunchMain(int mode, CString pFile) {
 	CollectData();
 
 	PIXA=m_pixelA;
@@ -761,6 +850,7 @@ void CTIPicViewDlg::LaunchMain(int mode, char *pFile) {
 	PIXD=m_pixelD;
 	PIXE=m_pixelE;
 	PIXF=m_pixelF;
+	g_orderSlide = m_nOrderSlide;
 	g_nFilter = m_nFilter;
 	g_nPortraitMode = m_nPortraitMode;
 	g_AccumulateErrors = (m_ErrMode == 0) ? 0 : 1;
@@ -775,7 +865,7 @@ void CTIPicViewDlg::LaunchMain(int mode, char *pFile) {
 	if (InterlockedCompareExchange(&cs, 1, 0) == 1) {
 		printf("Error locking - already processing\n");
 	} else {
-		maincode(mode, pFile);
+		maincode(mode, pFile, m_nOrderSlide);
 		InterlockedExchange(&cs, 0);
 	}
 	GreenMode=false;
@@ -783,13 +873,26 @@ void CTIPicViewDlg::LaunchMain(int mode, char *pFile) {
 
 void CTIPicViewDlg::OnBnClickedReload()
 {
-	LaunchMain(1,NULL);
+	LaunchMain(1,"");
+}
+
+void CTIPicViewDlg::MakeConversionModeValid() {
+    // this has to do with changing conversion output modes in the TI version
+}
+
+bool CTIPicViewDlg::ResetToValidConversion() {
+    // this has to do with changing conversion output modes in the TI version
+	return true;
 }
 
 // old ErrDistDlg
 void CTIPicViewDlg::PrepareData()
 {
-	UpdateData(false);
+	CButton *pBtn;
+	pBtn = (CButton*)GetDlgItem(IDC_RADIO1);
+	if (pBtn) pBtn->SetCheck(BST_CHECKED);
+	pBtn = (CButton*)GetDlgItem(IDC_RADIO2);
+	if (pBtn) pBtn->SetCheck(BST_UNCHECKED);
 
 	CButton *pCtrl=(CButton*)GetDlgItem(IDC_PERCEPT);
 	if (pCtrl) {
@@ -800,6 +903,7 @@ void CTIPicViewDlg::PrepareData()
 		}
 	}
 
+	UpdateData(false);
 }
 
 //	... PIX D E
@@ -815,6 +919,7 @@ void CTIPicViewDlg::EnableDitherCtrls(bool enable) {
 		EnableItem(IDC_EDIT4);
 		EnableItem(IDC_EDIT5);
 		EnableItem(IDC_EDIT6);
+		DisableItem(IDC_ORDERSLIDE);
 	} else{
 		DisableItem(IDC_EDIT1);
 		DisableItem(IDC_EDIT2);
@@ -822,10 +927,11 @@ void CTIPicViewDlg::EnableDitherCtrls(bool enable) {
 		DisableItem(IDC_EDIT4);
 		DisableItem(IDC_EDIT5);
 		DisableItem(IDC_EDIT6);
+		EnableItem(IDC_ORDERSLIDE);
 	}
 }
 
-// floyd-steinberg dither
+// Floyd-Steinberg Dither
 void CTIPicViewDlg::OnBnClickedFloyd()
 {
 	UpdateData(true);
@@ -866,6 +972,18 @@ void CTIPicViewDlg::OnBnClickedPattern()
 	untoggleOrdered();
 }
 
+void CTIPicViewDlg::OnBnClickedDiag()
+{
+	UpdateData(true);
+	m_pixelA=1;
+	m_pixelB=3;
+	m_pixelC=2;
+	m_pixelD=3;
+	m_pixelE=1;
+	m_pixelF=1;
+	UpdateData(false);
+	untoggleOrdered();
+}
 
 void CTIPicViewDlg::OnBnClickedNodither()
 {
@@ -884,6 +1002,8 @@ void CTIPicViewDlg::untoggleOrdered()
 {
 	SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_UNCHECKED, 0);
 	SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED3, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED4, BM_SETCHECK, BST_UNCHECKED, 0);
 	EnableDitherCtrls(TRUE);
 	g_OrderedDither = 0;
 }
@@ -892,9 +1012,12 @@ void CTIPicViewDlg::OnBnClickedOrdered()
 {
 	// this one is a toggle
 	SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED3, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED4, BM_SETCHECK, BST_UNCHECKED, 0);
 	if (BST_CHECKED == SendDlgItemMessage(IDC_ORDERED, BM_GETCHECK, 0, 0)) {
 		EnableDitherCtrls(FALSE);
 		g_OrderedDither = 1;
+		g_MapSize = 2;
 	} else {
 		EnableDitherCtrls(TRUE);
 		g_OrderedDither = 0;
@@ -904,11 +1027,66 @@ void CTIPicViewDlg::OnBnClickedOrdered()
 
 void CTIPicViewDlg::OnBnClickedOrdered2()
 {
+	// this one is a toggle but keeps the dither up
+	SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED3, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED4, BM_SETCHECK, BST_UNCHECKED, 0);
+	if (BST_CHECKED == SendDlgItemMessage(IDC_ORDERED2, BM_GETCHECK, 0, 0)) {
+		EnableDitherCtrls(TRUE);
+		g_OrderedDither = 2;
+		g_MapSize = 2;
+
+		UpdateData(true);
+		m_pixelA=1;
+		m_pixelB=2;
+		m_pixelC=2;
+		m_pixelD=2;
+		m_pixelE=0;
+		m_pixelF=0;
+		UpdateData(false);
+
+	} else {
+		EnableDitherCtrls(TRUE);
+		g_OrderedDither = 0;
+	}
+}
+
+void CTIPicViewDlg::OnBnClickedOrdered3()
+{
 	// this one is a toggle
 	SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_UNCHECKED, 0);
-	if (BST_CHECKED == SendDlgItemMessage(IDC_ORDERED2, BM_GETCHECK, 0, 0)) {
+	SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED4, BM_SETCHECK, BST_UNCHECKED, 0);
+	if (BST_CHECKED == SendDlgItemMessage(IDC_ORDERED3, BM_GETCHECK, 0, 0)) {
 		EnableDitherCtrls(FALSE);
+		g_OrderedDither = 1;
+		g_MapSize = 4;
+	} else {
+		EnableDitherCtrls(TRUE);
+		g_OrderedDither = 0;
+	}
+}
+
+void CTIPicViewDlg::OnBnClickedOrdered4()
+{
+	// this one is a toggle but keeps the dither up
+	SendDlgItemMessage(IDC_ORDERED, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED2, BM_SETCHECK, BST_UNCHECKED, 0);
+	SendDlgItemMessage(IDC_ORDERED3, BM_SETCHECK, BST_UNCHECKED, 0);
+	if (BST_CHECKED == SendDlgItemMessage(IDC_ORDERED4, BM_GETCHECK, 0, 0)) {
+		EnableDitherCtrls(TRUE);
 		g_OrderedDither = 2;
+		g_MapSize = 4;
+
+		UpdateData(true);
+		m_pixelA=1;
+		m_pixelB=2;
+		m_pixelC=2;
+		m_pixelD=2;
+		m_pixelE=0;
+		m_pixelF=0;
+		UpdateData(false);
+
 	} else {
 		EnableDitherCtrls(TRUE);
 		g_OrderedDither = 0;
@@ -929,8 +1107,6 @@ void CTIPicViewDlg::CollectData()
 {
 	UpdateData(true);
 }
-
-
 void CTIPicViewDlg::OnBnClickedMono()
 {
 	// convert the image to mono - this will be the actual bit patterns that we store
@@ -953,7 +1129,7 @@ void CTIPicViewDlg::OnBnClickedMono()
 			// sanity test - make sure all 7 pixels are in the same color group
 			for (int idx=0; idx<6; idx++) {
 				if ((work[idx]&0x04) != (work[idx+1]&0x04)) {
-					AfxMessageBox("Error in color conversion - mismatched color set in byte");
+					AfxMessageBox(_T("Error in color conversion - mismatched color set in byte"));
 					return;
 				}
 			}
@@ -1023,12 +1199,12 @@ void CTIPicViewDlg::OnTimer(UINT_PTR nIDEvent)
 	if (NULL != pSharedPointer) {
 		// this isn't very atomic, but, it's never supposed to
 		// change after the first time it's set.
-		char buf[256];
-		memcpy(buf, pSharedPointer, 256);
+		wchar_t buf[256];
+		memcpy(buf, pSharedPointer, sizeof(buf));
 //		InterlockedExchange((LONG*)pSharedPointer, 0);	// this only works as long as it takes us longer to load the image as the other app needs to scan.
 														// TODO: we could do better.
 		if (buf[0] != '\0') {
-			if (0 != strcmp(szLastFilename, buf)) {
+			if (0 != wcscmp(szLastFilename, buf)) {
 				// don't bother if it's the same as we already have
 				LaunchMain(2, buf);
 			}

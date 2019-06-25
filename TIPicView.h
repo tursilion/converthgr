@@ -14,7 +14,16 @@
 
 #include "resource.h"		// main symbols
 
+typedef unsigned int UINT32;
+typedef unsigned char uchar;
+typedef unsigned long ulong;
+typedef unsigned long slong;
+typedef short sshort;
+typedef char schar;
+
 #define XOFFSET 250
+
+#define DPIFIX(xx) MulDiv((xx), dpi, 96)
 
 typedef struct tagMYRGBQUAD {
 	// mine is RGB instead of BGR
@@ -23,6 +32,8 @@ typedef struct tagMYRGBQUAD {
         BYTE    rgbBlue;
         BYTE    rgbReserved;
 } MYRGBQUAD;
+// we manually wrap the Win10 function GetDpiForWindow()
+UINT WINAPI GetDpiForWindow(_In_ HWND hWnd);
 
 /////////////////////////////////////////////////////////////////////////////
 // CTIPicViewApp:
@@ -52,21 +63,28 @@ public:
 	DECLARE_MESSAGE_MAP()
 };
 
-BOOL MYRGBTo8BitDithered(BYTE *pRGB, UINT32 uWidth, UINT32 uHeight, BYTE *p8Bit, UINT32 uColors, MYRGBQUAD *pal);
-void debug(char *s, ...);
+void debug(wchar_t *s, ...);
 
-// threshold map for ordered dither
-extern double g_thresholdMap[4][4];
-extern double g_thresholdMap2[4][4];
+// This macro basically reduces to 4 bits of accuracy, but rounds up and shifts back to the 8-bit RGB range (so high nibble only)
+// I think this is causing a lot of my streaking...
+// so for now, we are working in true color, which is great, but we are generating truecolor palettes when
+// the chip can only do 12-bit color. So we'll get loss of detail and banding that we really should be
+// dithering. But when we do this correction in the palette, it sometimes results in different palette selection.
+// So.. do we do this after the palette selection but before the dither?
+//#define MakeRoundedRGB(x) ((((((int)(x)<256-8)?(x)+8:(x))>>4)<<4)+8)
+#define MakeRoundedRGB(x) (x)
+#define MakeTrulyRoundedRGB(x) ((((((int)(x)<256-8)?(x)+8:(x))>>4)<<4)+8)
 
 /////////////////////////////////////////////////////////////////////////////
 
 //{{AFX_INSERT_LOCATION}}
 // Microsoft Visual C++ will insert additional declarations immediately before the previous line.
 
+double yuvdist(double r1, double g1, double b1, double r2, double g2, double b2);
 double yuvpaldist(double r1, double g1, double b1, int nCol);
 void makeYUV(double r, double g, double b, double &y, double &u, double &v);
 void makeY(double r, double g, double b, double &y);
+void buildlookup();
 
 #endif // !defined(AFX_TIPICVIEW_H__F4725884_9A29_4492_AE12_0E3B106C2738__INCLUDED_)
 

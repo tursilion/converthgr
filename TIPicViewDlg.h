@@ -2,6 +2,7 @@
 //
 
 #include "afxwin.h"
+#include "afxcmn.h"
 #if !defined(AFX_TIPICVIEWDLG_H__B6982AC5_ECCF_44C3_B525_9A2ADEE846F2__INCLUDED_)
 #define AFX_TIPICVIEWDLG_H__B6982AC5_ECCF_44C3_B525_9A2ADEE846F2__INCLUDED_
 
@@ -59,20 +60,22 @@ public:
 	afx_msg void OnBnClickedPercept();
 	afx_msg void OnBnClickedReload();
 
+	void MakeConversionModeValid();
+	bool ResetToValidConversion();
 	void ResetControls();
 	void EnableItem(int Ctrl);
 	void DisableItem(int Ctrl);
-	void LaunchMain(int mode, char *pFile);	// wrapper for maincode()
+	void LaunchMain(int mode, CString pFile);	// wrapper for maincode()
 
 	// old ErrDistDlg
 	virtual void PrepareData();
 	void EnableDitherCtrls(bool enable);
 	void untoggleOrdered();
 	afx_msg void OnBnClickedFloyd();
+	afx_msg void OnBnClickedPerpreset();
 	afx_msg void OnBnClickedPattern();
 	afx_msg void OnBnClickedNodither();
 	afx_msg void OnBnClickedAtkinson();
-	afx_msg void OnBnClickedPerpreset();
 	afx_msg void CollectData();
 
 	DWORD m_pixelF;
@@ -105,6 +108,11 @@ public:
 	int m_MaxColDiff;
 	afx_msg void OnBnClickedOrdered();
 	afx_msg void OnBnClickedOrdered2();
+	int m_nOrderSlide;
+	CSliderCtrl ctrlOrderSlide;
+	afx_msg void OnBnClickedDiag();
+	afx_msg void OnBnClickedOrdered3();
+	afx_msg void OnBnClickedOrdered4();
 };
 
 //{{AFX_INSERT_LOCATION}}

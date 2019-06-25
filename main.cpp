@@ -323,7 +323,7 @@ void maincode(int mode, CString pFile, double dark)
 
 		default:
 			// not something supported, then
-			printf("Unable to indentify file (corrupt?)\n-> %S <-\n", szFileName);
+			printf("Unable to identify file (corrupt?)\n-> %S <-\n", szFileName);
 			IS40_CloseSource(hSource);
 			return;
 		}
@@ -395,7 +395,7 @@ ohJustSkipTheLoad:
 	{
 		// original before adjustments
 		if (StretchHist) {
-			debug("Equalize histogram...\n");
+			debug(_T("Equalize histogram...\n"));
 			if (!IS40_BrightnessHistogramEqualizeImage((unsigned char*)hBuffer2, iWidth, iHeight, 3, iWidth*3, 32, 224, 0)) {
 				printf("Failed to equalize image, code %d\n", IS40_GetLastError());
 			}
@@ -798,7 +798,7 @@ bool ScalePic(int nFilter, int nPortraitMode)
 
 	// handle shifting
 	if (pixeloffset != 0) {
-		debug("Nudging %d pixels...\n", pixeloffset);
+		debug(_T("Nudging %d pixels...\n"), pixeloffset);
 		if (pixeloffset > 0) {
 			memmove(hBuffer2, (char*)hBuffer2+pixeloffset*3, (280*192-pixeloffset)*3);
 		} else {

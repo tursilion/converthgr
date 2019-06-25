@@ -43,7 +43,7 @@ is often able to render scenes more pleasingly in this mode.
 may look on a monochrome monitor, with the color removed. Note
 that half-pixel representations are not displayed, but will be
 saved correctly. It does not matter if you save in color or green
-mode, the same data will be written. Restore the color version
+mode, the same data will be written. Restore the color view
 with the Reload button.
 
 -Dithering - This system uses dithering to improve the apparent 
@@ -53,7 +53,11 @@ error that goes to that pixel. In addition, three buttons set
 recommended defaults:
 
 Floyd-Stein - sets Floyd-Steinberg dithering
-Ordered - sets a regular ordered dither (every other pixel)
+Pattern - sets a regular ordered dither (every other pixel, old Ordered)
+Order1 - true ordered dither with 2x2 matrix and offset adjust (use the slider)
+Order2 - ordered dither with 2x2 matrix and error distribution
+Order3 - true ordered dither with 4x4 matrix and offset adjust (use the slider)
+Order4 - ordered dither with 4x4 matrix and error distribution
 No Dither - disables dithering
 
 Note that if the total of all values entered is less than 16,
@@ -118,11 +122,10 @@ are not supported at this time.
 
 -Save Pic - saves the picture either as a memory dump (.HGR)
 or as a new DOS 3.3 compatible DSK image (.DSK). In the case
-of the DSK image, a single file called "HGRFILE" will be on the
-disk. You can view it in an emulator or on a real Apple 2 with
-these commands:
-	HGR
-	BLOAD HGRFILE
+of the DSK image, a bootable DOS3.3 disk will be written with
+the file named "HGRFILE", and a small HELLO program to display
+it. Note that the disk format is fixed and the HGRFILE will
+always be stored starting on track 18, sector 0.
 
 Note that the image is briefly displayed in green-mode during
 saving, then reloaded afterwards.
@@ -149,8 +152,12 @@ Passing a second makes the result automatically be saved to
 that filename without displaying the GUI. Two files will be
 saved, an HGR (memory dump) file, and a BMP showing the result.
 
-Source code is not available as this program uses
-the ImgSource Library by Smaller Animals Software.
+Due to the large number of options and the differences between
+images, getting pleasing output is a bit of an art. Try playing
+with one option at a time, reloading each change, to get a feel
+for how each affects the image.
+
+This program uses the ImgSource Library by Smaller Animals Software.
 
 //
 // (C) 2013 Mike Brent aka Tursi aka HarmlessLion.com
