@@ -27,4 +27,6 @@ bigdata.dat
 convert9918.ini
 ipch/
 *.opendb
+*.db
+.vs/
 
