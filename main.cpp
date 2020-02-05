@@ -1,7 +1,7 @@
 // Convert an image to a Apple2 HGR compatible image
 // 
 
-#define _WIN32_IE 0x0400
+#define _WIN32_IE 0x0500
 
 #include "stdafx.h"
 #include <windows.h>
