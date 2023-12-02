@@ -151,6 +151,8 @@ displayed in the GUI automatically.
 Passing a second makes the result automatically be saved to
 that filename without displaying the GUI. Two files will be
 saved, an HGR (memory dump) file, and a BMP showing the result.
+Pass "/?" to see other options, but most are just overrides
+for the INI file.
 
 Due to the large number of options and the differences between
 images, getting pleasing output is a bit of an art. Try playing
@@ -160,7 +162,7 @@ for how each affects the image.
 This program uses the ImgSource Library by Smaller Animals Software.
 
 //
-// (C) 2013 Mike Brent aka Tursi aka HarmlessLion.com
+// (C) 2023 Mike Brent aka Tursi aka HarmlessLion.com
 // This software is provided AS-IS. No warranty
 // express or implied is provided.
 //

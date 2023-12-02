@@ -373,6 +373,9 @@ BOOL CTIPicViewApp::InitInstance()
 	memset(cmdOptions, 0, sizeof(cmdOptions));
 	numOptions = 0;
 
+	// we might already have it depending on the command line
+	GetConsole();
+
 	// really shouldn't parse this ourselves, but it's late and I'm tired.
 	// and now I build upon that evil! Muhaha! It's not even late this time!
 	int tokenStart = -1;
@@ -409,6 +412,7 @@ BOOL CTIPicViewApp::InitInstance()
 							fVerbose = true;
 							debug(_T("Verbose mode on"));
 						} else if (0 == wcscmp(_T("/?"), &cmdLineCopy[tokenStart])) {
+							printf("\nconverthgr [options] input output\n");
 							printf(" /verbose = enable verbose output\n");
 							printf(" Any other option from the INI may be specified as \"/option=value\" - see INI.\n");
 							ExitProcess(0);
@@ -441,9 +445,6 @@ BOOL CTIPicViewApp::InitInstance()
 		// printf can handle NULL, so this is okay
 		printf("File In: %S\nFileOut: %S\n", cmdFileIn, cmdFileOut);
 	}
-
-	// we might already have it depending on the command line
-	GetConsole();
 
 	// bring up the dialog
 	CTIPicViewDlg dlg;
